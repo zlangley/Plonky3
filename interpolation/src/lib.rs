@@ -24,7 +24,7 @@ where
     EF: ExtensionField<F> + TwoAdicField,
     Mat: Matrix<F>,
 {
-    interpolate_coset(subgroup_evals, F::ONE, point, None)
+    interpolate_coset(subgroup_evals, F::ONE, point)
 }
 
 /// Given evaluations of a batch of polynomials over the given coset of the canonical power-of-two
@@ -32,11 +32,12 @@ where
 ///
 /// This assumes the point is not in the coset, otherwise the behavior is undefined.
 /// If available, reuse denominator diffs that is `1 / (x_i-z)` to avoid batch inversion.
-pub fn interpolate_coset<F, EF, Mat>(
+pub fn interpolate_coset_precomp<F, EF, Mat>(
+    subgroup: &[F],
     coset_evals: &Mat,
     shift: F,
     point: EF,
-    diff_invs: Option<&[EF]>,
+    diff_invs: &[EF],
 ) -> Vec<EF>
 where
     F: TwoAdicField,
@@ -44,28 +45,17 @@ where
     Mat: Matrix<F>,
 {
     // Slight variation of this approach: https://hackmd.io/@vbuterin/barycentric_evaluation
+    debug_assert_eq!(subgroup.len(), diff_invs.len());
+    debug_assert_eq!(subgroup.len(), coset_evals.height());
 
     let height = coset_evals.height();
     let log_height = log2_strict_usize(height);
 
-    let g = F::two_adic_generator(log_height).powers().take(height);
-    let col_scale: Vec<_> = if let Some(diff_invs) = diff_invs {
-        g.zip(diff_invs)
-            .map(|(sg, &diff_inv)| diff_inv * sg)
-            .collect()
-    } else {
-        let subgroup = g.collect::<Vec<_>>();
-        let diffs: Vec<EF> = subgroup
-            .par_iter()
-            .map(|&subgroup_i| point - subgroup_i * shift)
-            .collect();
-        let diff_invs = batch_multiplicative_inverse(&diffs);
-        subgroup
-            .par_iter()
-            .zip(diff_invs)
-            .map(|(&sg, diff_inv)| diff_inv * sg)
-            .collect()
-    };
+    let col_scale: Vec<_> = subgroup
+        .par_iter()
+        .zip(diff_invs)
+        .map(|(&sg, &diff_inv)| diff_inv * sg)
+        .collect();
     let sum = coset_evals.columnwise_dot_product(&col_scale);
 
     let vanishing_polynomial =
@@ -78,6 +68,28 @@ where
     scale_vec(vanishing_polynomial * denominator.inverse(), sum)
 }
 
+pub fn interpolate_coset<F, EF, Mat>(coset_evals: &Mat, shift: F, point: EF) -> Vec<EF>
+where
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    Mat: Matrix<F>,
+{
+    let height = coset_evals.height();
+    let log_height = log2_strict_usize(height);
+    let subgroup = F::two_adic_generator(log_height)
+        .powers()
+        .take(height)
+        .collect::<Vec<_>>();
+
+    let diffs: Vec<EF> = subgroup[..coset_evals.height()]
+        .par_iter()
+        .map(|&g| point - g * shift)
+        .collect();
+    let diff_invs = batch_multiplicative_inverse(&diffs);
+
+    interpolate_coset_precomp(&subgroup, coset_evals, shift, point, &diff_invs)
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::vec;
@@ -88,7 +100,7 @@ mod tests {
     use p3_matrix::dense::RowMajorMatrix;
     use p3_util::log2_strict_usize;
 
-    use crate::{interpolate_coset, interpolate_subgroup};
+    use crate::{interpolate_coset, interpolate_coset_precomp, interpolate_subgroup};
 
     #[test]
     fn test_interpolate_subgroup() {
@@ -115,7 +127,7 @@ mod tests {
         .map(F::from_u32);
         let evals_mat = RowMajorMatrix::new(evals.to_vec(), 1);
         let point = F::from_u16(100);
-        let result = interpolate_coset(&evals_mat, shift, point, None);
+        let result = interpolate_coset(&evals_mat, shift, point);
         assert_eq!(result, vec![F::from_u16(10203)]);
 
         use p3_field::TwoAdicField;
@@ -127,9 +139,10 @@ mod tests {
             .take(n)
             .map(|w| point - w)
             .collect();
+        let subgroup: Vec<_> = F::two_adic_generator(k).powers().take(n).collect();
 
         let denom = batch_multiplicative_inverse(&denom);
-        let result = interpolate_coset(&evals_mat, shift, point, Some(&denom));
+        let result = interpolate_coset_precomp(&subgroup, &evals_mat, shift, point, &denom);
         assert_eq!(result, vec![F::from_u16(10203)]);
     }
 }
