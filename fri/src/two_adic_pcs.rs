@@ -277,44 +277,50 @@ where
         let inv_denoms = compute_inverse_denominators(&mats_and_points, Val::GENERATOR, &subgroup);
 
         // Evaluate coset representations and write openings to the challenger
-        let all_opened_values = mats_and_points
-            .iter()
-            .map(|(mats, points)| {
-                izip!(mats.iter(), points.iter())
-                    .map(|(mat, points_for_mat)| {
-                        let h = mat.height() >> self.fri.log_blowup;
-                        let (low_coset, _) = mat.split_rows(h);
-                        let subgroup_h = &subgroup[..h];
+        let all_opened_values =
+            mats_and_points
+                .iter()
+                .map(|(mats, points)| {
+                    izip!(mats.iter(), points.iter())
+                        .map(|(mat, points_for_mat)| {
+                            let h = mat.height() >> self.fri.log_blowup;
+                            let (low_coset, _) = mat.split_rows(h);
+                            let subgroup_h = &subgroup[..h];
+                            let mut col_scale = vec![Default::default(); h];
 
-                        points_for_mat
-                            .iter()
-                            .map(|&point| {
-                                let _guard =
-                                    info_span!("evaluate matrix", dims = %mat.dimensions())
-                                        .entered();
+                            points_for_mat
+                                .iter()
+                                .map(|&point| {
+                                    let _guard =
+                                        info_span!("evaluate matrix", dims = %mat.dimensions())
+                                            .entered();
 
-                                // Use Barycentric interpolation to evaluate the matrix at the given point.
-                                let ys =
-                                    info_span!("compute opened values with Lagrange interpolation")
-                                        .in_scope(|| {
-                                            let inv_denoms = &inv_denoms.get(&point).unwrap()[..h];
-                                            interpolate_coset_precomp(
-                                                subgroup_h,
-                                                &low_coset,
-                                                Val::GENERATOR,
-                                                point,
-                                                inv_denoms,
-                                            )
-                                        });
-                                ys.iter()
-                                    .for_each(|&y| challenger.observe_algebra_element(y));
-                                ys
-                            })
-                            .collect_vec()
-                    })
-                    .collect_vec()
-            })
-            .collect_vec();
+                                    // Use Barycentric interpolation to evaluate the matrix at the given point.
+                                    let ys = info_span!(
+                                        "compute opened values with Lagrange interpolation"
+                                    )
+                                    .in_scope(|| {
+                                        let inv_denoms = &inv_denoms.get(&point).unwrap();
+                                        col_scale
+                                            .par_iter_mut()
+                                            .zip(subgroup_h.par_iter().zip(inv_denoms.par_iter()))
+                                            .for_each(|(cs, (&sg, &diff_inv))| *cs = diff_inv * sg);
+                                        interpolate_coset_precomp(
+                                            &col_scale,
+                                            &low_coset,
+                                            Val::GENERATOR,
+                                            point,
+                                        )
+                                    });
+                                    ys.iter()
+                                        .for_each(|&y| challenger.observe_algebra_element(y));
+                                    ys
+                                })
+                                .collect_vec()
+                        })
+                        .collect_vec()
+                })
+                .collect_vec();
 
         // Batch combination challenge
         // TODO: Should we be computing a different alpha for each height?

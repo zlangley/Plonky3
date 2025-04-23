@@ -33,11 +33,10 @@ where
 /// This assumes the point is not in the coset, otherwise the behavior is undefined.
 /// If available, reuse denominator diffs that is `1 / (x_i-z)` to avoid batch inversion.
 pub fn interpolate_coset_precomp<F, EF, Mat>(
-    subgroup: &[F],
+    col_scale: &[EF],
     coset_evals: &Mat,
     shift: F,
     point: EF,
-    diff_invs: &[EF],
 ) -> Vec<EF>
 where
     F: TwoAdicField,
@@ -45,17 +44,11 @@ where
     Mat: Matrix<F>,
 {
     // Slight variation of this approach: https://hackmd.io/@vbuterin/barycentric_evaluation
-    debug_assert_eq!(subgroup.len(), diff_invs.len());
-    debug_assert_eq!(subgroup.len(), coset_evals.height());
 
     let height = coset_evals.height();
     let log_height = log2_strict_usize(height);
+    debug_assert_eq!(col_scale.len(), coset_evals.height());
 
-    let col_scale: Vec<_> = subgroup
-        .par_iter()
-        .zip(diff_invs)
-        .map(|(&sg, &diff_inv)| diff_inv * sg)
-        .collect();
     let sum = coset_evals.columnwise_dot_product(&col_scale);
 
     let vanishing_polynomial =
@@ -81,13 +74,19 @@ where
         .take(height)
         .collect::<Vec<_>>();
 
-    let diffs: Vec<EF> = subgroup[..coset_evals.height()]
+    let diffs: Vec<_> = subgroup[..coset_evals.height()]
         .par_iter()
         .map(|&g| point - g * shift)
         .collect();
     let diff_invs = batch_multiplicative_inverse(&diffs);
 
-    interpolate_coset_precomp(&subgroup, coset_evals, shift, point, &diff_invs)
+    let col_scale: Vec<_> = subgroup
+        .par_iter()
+        .zip(&diff_invs)
+        .map(|(&sg, &diff_inv)| diff_inv * sg)
+        .collect();
+
+    interpolate_coset_precomp(&col_scale, coset_evals, shift, point)
 }
 
 #[cfg(test)]
