@@ -454,7 +454,7 @@ impl<T: Clone + Send + Sync, S: DenseStorage<T>> Matrix<T> for DenseMatrix<T, S>
     }
 }
 
-impl<T: Clone + Default + Send + Sync> DenseMatrix<T, Vec<T>> {
+impl<T: Clone + Default + Send + Sync> DenseMatrix<T> {
     pub fn as_cow<'a>(self) -> RowMajorMatrixCow<'a, T> {
         RowMajorMatrixCow::new(Cow::Owned(self.values), self.width)
     }
@@ -486,7 +486,7 @@ impl<T: Clone + Default + Send + Sync> DenseMatrix<T, Vec<T>> {
     }
 }
 
-impl<T: Copy + Default + Send + Sync> DenseMatrix<T, Vec<T>> {
+impl<T: Copy + Default + Send + Sync> DenseMatrix<T> {
     pub fn transpose(&self) -> Self {
         let nelts = self.height() * self.width();
         let mut values = vec![T::default(); nelts];
@@ -501,7 +501,7 @@ impl<T: Copy + Default + Send + Sync> DenseMatrix<T, Vec<T>> {
     }
 }
 
-impl<'a, T: Clone + Default + Send + Sync> DenseMatrix<T, &'a [T]> {
+impl<'a, T: Clone + Default + Send + Sync> RowMajorMatrixView<'a, T> {
     pub fn as_cow(self) -> RowMajorMatrixCow<'a, T> {
         RowMajorMatrixCow::new(Cow::Borrowed(self.values), self.width)
     }
