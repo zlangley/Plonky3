@@ -99,7 +99,7 @@ impl<F: TwoAdicField, InputProof, InputError: Debug, EF: ExtensionField<F>> FriG
         // Note we do not want to do an EF division as that is far more expensive.
     }
 
-    fn fold_matrix<M: Matrix<EF>>(&self, beta: EF, m: M) -> Vec<EF> {
+    fn fold_matrix<M: Matrix<EF>>(&self, beta: EF, m: M, halve_inv_powers: &[F]) -> Vec<EF> {
         // We use the fact that
         //     p_e(x^2) = (p(x) + p(-x)) / 2
         //     p_o(x^2) = (p(x) - p(-x)) / (2 x)
@@ -111,21 +111,16 @@ impl<F: TwoAdicField, InputProof, InputError: Debug, EF: ExtensionField<F>> FriG
         //
         // As p_e, p_o will be in the extension field we want to find ways to avoid extension multiplications.
         // We should only need a single one (namely multiplication by beta).
-        let g_inv = F::two_adic_generator(log2_strict_usize(m.height()) + 1).inverse();
+        debug_assert_eq!(m.height(), halve_inv_powers.len());
 
         // TODO: vectorize this (after we have packed extension fields)
 
         // As beta is in the extension field, we want to avoid multiplying by it
         // for as long as possible. Here we precompute the powers  `g_inv^i / 2` in the base field.
-        let mut halve_inv_powers = g_inv
-            .shifted_powers(F::ONE.halve())
-            .take(m.height())
-            .collect_vec();
-        reverse_slice_index_bits(&mut halve_inv_powers);
 
         m.par_rows()
             .zip(halve_inv_powers)
-            .map(|(mut row, halve_inv_power)| {
+            .map(|(mut row, &halve_inv_power)| {
                 let (lo, hi) = row.next_tuple().unwrap();
                 (lo + hi).halve() + (lo - hi) * beta * halve_inv_power
             })

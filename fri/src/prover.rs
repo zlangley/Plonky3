@@ -7,6 +7,7 @@ use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_dft::{Radix2Dit, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_matrix::Matrix;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_util::{log2_strict_usize, reverse_slice_index_bits};
 use tracing::{debug_span, info_span, instrument};
@@ -22,7 +23,7 @@ pub fn prove<G, Val, Challenge, M, Challenger>(
     open_input: impl Fn(usize) -> G::InputProof,
 ) -> FriProof<Challenge, M, Challenger::Witness, G::InputProof>
 where
-    Val: Field,
+    Val: Field + TwoAdicField,
     Challenge: ExtensionField<Val> + TwoAdicField,
     M: Mmcs<Challenge>,
     Challenger: FieldChallenger<Val> + GrindingChallenger + CanObserve<M::Commitment>,
@@ -83,7 +84,7 @@ fn commit_phase<G, Val, Challenge, M, Challenger>(
     challenger: &mut Challenger,
 ) -> CommitPhaseResult<Challenge, M>
 where
-    Val: Field,
+    Val: Field + TwoAdicField,
     Challenge: ExtensionField<Val> + TwoAdicField,
     M: Mmcs<Challenge>,
     Challenger: FieldChallenger<Val> + CanObserve<M::Commitment>,
@@ -94,6 +95,13 @@ where
     let mut commits = vec![];
     let mut data = vec![];
 
+    let g_inv = Val::two_adic_generator(log2_strict_usize(folded.len()) + 1).inverse();
+    let mut halve_inv_powers = g_inv
+        .shifted_powers(Val::ONE.halve())
+        .take(folded.len())
+        .collect_vec();
+    reverse_slice_index_bits(&mut halve_inv_powers);
+
     while folded.len() > config.blowup() * config.final_poly_len() {
         let leaves = RowMajorMatrix::new(folded, 2);
         let (commit, prover_data) = config.mmcs.commit_matrix(leaves);
@@ -102,7 +110,7 @@ where
         let beta: Challenge = challenger.sample_algebra_element();
         // We passed ownership of `current` to the MMCS, so get a reference to it
         let leaves = config.mmcs.get_matrices(&prover_data).pop().unwrap();
-        folded = g.fold_matrix(beta, leaves.as_view());
+        folded = g.fold_matrix(beta, leaves.as_view(), &halve_inv_powers[..leaves.height()]);
 
         commits.push(commit);
         data.push(prover_data);
