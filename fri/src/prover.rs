@@ -95,7 +95,7 @@ where
     let mut commits = vec![];
     let mut data = vec![];
 
-    let g_inv = Val::two_adic_generator(log2_strict_usize(folded.len()) + 1).inverse();
+    let g_inv = Val::two_adic_generator(log2_strict_usize(folded.len())).inverse();
     let mut halve_inv_powers = g_inv
         .shifted_powers(Val::ONE.halve())
         .take(folded.len())
@@ -110,7 +110,11 @@ where
         let beta: Challenge = challenger.sample_algebra_element();
         // We passed ownership of `current` to the MMCS, so get a reference to it
         let leaves = config.mmcs.get_matrices(&prover_data).pop().unwrap();
-        folded = g.fold_matrix(beta, leaves.as_view(), &halve_inv_powers[..leaves.height()]);
+        folded = g.fold_matrix(
+            beta,
+            leaves.as_view(),
+            &halve_inv_powers[0..leaves.height()],
+        );
 
         commits.push(commit);
         data.push(prover_data);
