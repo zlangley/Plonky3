@@ -23,6 +23,36 @@ pub struct DenseMatrix<T, V = Vec<T>> {
     _phantom: PhantomData<T>,
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// artificial stuff
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 pub type RowMajorMatrix<T> = DenseMatrix<T, Vec<T>>;
 pub type RowMajorMatrixView<'a, T> = DenseMatrix<T, &'a [T]>;
 pub type RowMajorMatrixViewMut<'a, T> = DenseMatrix<T, &'a mut [T]>;
